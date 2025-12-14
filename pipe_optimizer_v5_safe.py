@@ -360,12 +360,13 @@ class SymmetryAwareSafeSolver:
         print(f"\n  Symmetry reduction: {len(pipe_lengths)} pipes → {self.n_types} unique types")
         print(f"  Reduction factor: {len(pipe_lengths)/self.n_types:.1f}x")
 
-    def generate_patterns(self, max_patterns: int = 2_000_000, max_welds: int = 3) -> list:
+    def generate_patterns(self, max_patterns: int = 2_000_000, max_welds: int = 3, stop_event=None) -> list:
         """Generate patterns over unique length TYPES (not individual pipes)
 
         Args:
             max_patterns: Safety limit on total patterns
             max_welds: Maximum number of pipe segments per pile (1, 2, or 3)
+            stop_event: Optional threading.Event to check for cancellation
         """
         section("PATTERN GENERATION")
 
@@ -393,6 +394,7 @@ class SymmetryAwareSafeSolver:
 
         # 2-pipe patterns (if max_welds >= 2)
         two_count = 0
+        cancelled = False
         if max_welds >= 2:
             print(f"\n[2/{max_welds}] Generating 2-pipe patterns...")
             total_pairs = n * (n + 1) // 2
@@ -414,10 +416,22 @@ class SymmetryAwareSafeSolver:
                     checked += 1
                     if checked % 5000 == 0:
                         progress_bar(checked, total_pairs, '2-pipe')
+                        # Check for cancellation every 5000 iterations
+                        if stop_event and stop_event.is_set():
+                            print("\n  Cancelled during 2-pipe generation")
+                            cancelled = True
+                            break
+                if cancelled:
+                    break
 
             progress_bar(total_pairs, total_pairs, '2-pipe')
             print(f"\n  Found {two_count:,} valid 2-pipe patterns")
             self.memory.check("after_2pipe")
+
+        # Return early if cancelled
+        if cancelled:
+            print(f"\n  TOTAL: {len(patterns):,} patterns (partial - cancelled)")
+            return patterns
 
         # 3-pipe patterns (if max_welds >= 3)
         three_count = 0
@@ -455,7 +469,14 @@ class SymmetryAwareSafeSolver:
                                 patterns.append(((i, j, k), total_len, waste, dict(counts_needed)))
                                 three_count += 1
 
-                                # Safety: check limits periodically
+                                # Safety: check limits and cancellation periodically
+                                if three_count % 10000 == 0:
+                                    # Check for cancellation
+                                    if stop_event and stop_event.is_set():
+                                        print("\n  Cancelled during 3-pipe generation")
+                                        print(f"\n  TOTAL: {len(patterns):,} patterns (partial - cancelled)")
+                                        return patterns
+
                                 if three_count % 50000 == 0:
                                     self.memory.check("3pipe_progress")
                                     if len(patterns) >= max_patterns:
@@ -470,6 +491,11 @@ class SymmetryAwareSafeSolver:
                 # Progress every ~10% of i values
                 if i % max(1, n // 10) == 0:
                     progress_bar(i, n, '3-pipe')
+                    # Also check cancellation at progress updates
+                    if stop_event and stop_event.is_set():
+                        print("\n  Cancelled during 3-pipe generation")
+                        print(f"\n  TOTAL: {len(patterns):,} patterns (partial - cancelled)")
+                        return patterns
 
             progress_bar(n, n, '3-pipe')
             print(f"\n  Found {three_count:,} valid 3-pipe patterns in {time.time()-start:.1f}s")

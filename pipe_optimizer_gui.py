@@ -29,19 +29,27 @@ def fix_cbc_permissions():
     """
     Fix CBC solver executable permissions in bundled app.
     PyInstaller sometimes strips execute permissions from binaries.
+
+    Note: Windows doesn't need chmod (permissions work differently),
+    but we include Windows paths for completeness.
     """
     try:
         import pulp
         pulp_dir = Path(pulp.__file__).parent
-        solver_dirs = [
+        solver_paths = [
+            # macOS
             pulp_dir / "solverdir" / "cbc" / "osx" / "i64" / "cbc",
+            # Linux
             pulp_dir / "solverdir" / "cbc" / "linux" / "i64" / "cbc",
             pulp_dir / "solverdir" / "cbc" / "linux" / "i32" / "cbc",
             pulp_dir / "solverdir" / "cbc" / "linux" / "arm64" / "cbc",
+            # Windows (chmod is no-op but included for path validation)
+            pulp_dir / "solverdir" / "cbc" / "win" / "64" / "cbc.exe",
+            pulp_dir / "solverdir" / "cbc" / "win" / "32" / "cbc.exe",
         ]
-        for solver_path in solver_dirs:
+        for solver_path in solver_paths:
             if solver_path.exists():
-                # Add execute permission
+                # Add execute permission (no-op on Windows)
                 current_mode = solver_path.stat().st_mode
                 if not (current_mode & stat.S_IXUSR):
                     solver_path.chmod(current_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
@@ -357,21 +365,41 @@ class PipeOptimizerGUI:
         self.stop_event.clear()
         self.progress.start(10)  # Indeterminate animation
 
-        # Start worker thread
-        self.worker_thread = threading.Thread(target=self._optimizer_worker, daemon=True)
+        # THREAD SAFETY: Read all Tkinter vars in main thread before spawning worker
+        # Tkinter is NOT thread-safe - accessing StringVar from worker can crash
+        params = {
+            'target': float(self.target_var.get()),
+            'waste': float(self.waste_var.get()),
+            'time_limit_min': float(self.time_var.get()),
+            'precision': int(self.precision_var.get()),
+            'gap_pct': float(self.gap_var.get()),
+            'max_welds': int(self.welds_var.get()),
+            'threads': int(self.threads_var.get()),
+            'input_file': self.selected_file,
+            'output_file': self.output_file,
+        }
+
+        # Start worker thread with params
+        self.worker_thread = threading.Thread(target=self._optimizer_worker, args=(params,), daemon=True)
         self.worker_thread.start()
 
-    def _optimizer_worker(self):
-        """Worker thread that runs the optimizer."""
+    def _optimizer_worker(self, params: dict):
+        """Worker thread that runs the optimizer.
+
+        Args:
+            params: Dict of parameters read from UI in main thread (thread-safe)
+        """
         try:
-            # Get all parameters
-            target = float(self.target_var.get())
-            waste = float(self.waste_var.get())
-            time_limit_min = float(self.time_var.get())
-            precision = int(self.precision_var.get())
-            gap_pct = float(self.gap_var.get())
-            max_welds = int(self.welds_var.get())
-            threads = int(self.threads_var.get())
+            # Unpack parameters (already converted from Tkinter vars in main thread)
+            target = params['target']
+            waste = params['waste']
+            time_limit_min = params['time_limit_min']
+            precision = params['precision']
+            gap_pct = params['gap_pct']
+            max_welds = params['max_welds']
+            threads = params['threads']
+            input_file = params['input_file']
+            output_file = params['output_file']
 
             # Convert to solver units
             time_limit_sec = int(time_limit_min * 60)
@@ -379,7 +407,7 @@ class PipeOptimizerGUI:
 
             # Load data
             self.progress_queue.put(("status", "Loading data..."))
-            pipe_data = load_pipe_data(self.selected_file)
+            pipe_data = load_pipe_data(input_file)
 
             if self.stop_event.is_set():
                 self.progress_queue.put(("cancelled", None))
@@ -405,9 +433,9 @@ class PipeOptimizerGUI:
                 self.progress_queue.put(("cancelled", None))
                 return
 
-            # Generate patterns
+            # Generate patterns (pass stop_event for cancellation support)
             self.progress_queue.put(("status", f"Generating patterns (max {max_welds} welds)..."))
-            patterns = solver.generate_patterns(max_welds=max_welds)
+            patterns = solver.generate_patterns(max_welds=max_welds, stop_event=self.stop_event)
 
             if self.stop_event.is_set():
                 self.progress_queue.put(("cancelled", None))
@@ -433,7 +461,7 @@ class PipeOptimizerGUI:
 
             # Export results
             self.progress_queue.put(("status", "Saving results..."))
-            export_to_excel(solver, solution, self.output_file)
+            export_to_excel(solver, solution, output_file)
 
             # Build results summary
             total_piles = len(solution)
@@ -462,7 +490,7 @@ Weld distribution:
                 count = weld_counts[welds]
                 results += f"  {welds} weld(s): {count} piles\n"
 
-            results += f"\nOutput saved to:\n{self.output_file}"
+            results += f"\nOutput saved to:\n{output_file}"
 
             self.progress_queue.put(("done", results))
 
@@ -470,9 +498,30 @@ Weld distribution:
             self.progress_queue.put(("error", str(e)))
 
     def cancel_optimizer(self):
-        """Signal the worker thread to stop."""
+        """Signal the worker thread to stop and kill any running solver processes."""
         self.stop_event.set()
         self.status_label.config(text="Cancelling...")
+
+        # Kill any running CBC solver processes to prevent orphans
+        self._kill_solver_processes()
+
+    def _kill_solver_processes(self):
+        """Kill any CBC solver processes that may be running."""
+        try:
+            import psutil
+            killed = 0
+            for proc in psutil.process_iter(['name', 'pid']):
+                try:
+                    name = proc.info['name'].lower()
+                    if 'cbc' in name:
+                        proc.terminate()
+                        killed += 1
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass
+            if killed > 0:
+                print(f"  Terminated {killed} solver process(es)")
+        except Exception:
+            pass  # Non-critical - solver will timeout eventually
 
     def poll_progress(self):
         """Check the queue for updates from worker thread."""
@@ -533,6 +582,7 @@ Weld distribution:
         """Clean up on window close."""
         if self.worker_thread and self.worker_thread.is_alive():
             self.stop_event.set()
+            self._kill_solver_processes()  # Kill any orphan CBC processes
             self.worker_thread.join(timeout=1.0)
         self.root.destroy()
 
