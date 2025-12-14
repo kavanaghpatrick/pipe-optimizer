@@ -360,8 +360,13 @@ class SymmetryAwareSafeSolver:
         print(f"\n  Symmetry reduction: {len(pipe_lengths)} pipes → {self.n_types} unique types")
         print(f"  Reduction factor: {len(pipe_lengths)/self.n_types:.1f}x")
 
-    def generate_patterns(self, max_patterns: int = 2_000_000) -> list:
-        """Generate patterns over unique length TYPES (not individual pipes)"""
+    def generate_patterns(self, max_patterns: int = 2_000_000, max_welds: int = 3) -> list:
+        """Generate patterns over unique length TYPES (not individual pipes)
+
+        Args:
+            max_patterns: Safety limit on total patterns
+            max_welds: Maximum number of pipe segments per pile (1, 2, or 3)
+        """
         section("PATTERN GENERATION")
 
         self.memory.check("pattern_generation_start")
@@ -373,11 +378,11 @@ class SymmetryAwareSafeSolver:
         min_len = self.target_length
         max_len = self.target_length + self.max_waste
 
-        print(f"\n  Target: {self.target_length}', Max waste: {self.max_waste}'")
+        print(f"\n  Target: {self.target_length}', Max waste: {self.max_waste}', Max welds: {max_welds}")
         print(f"  Valid pile range: {min_len}' to {max_len}'")
 
         # 1-pipe patterns (none expected for 100' target with max 51.6' pipes)
-        print("\n[1/3] Generating 1-pipe patterns...")
+        print(f"\n[1/{max_welds}] Generating 1-pipe patterns...")
         one_count = 0
         for i in range(n):
             if min_len <= lengths[i] <= max_len:
@@ -386,89 +391,89 @@ class SymmetryAwareSafeSolver:
                 one_count += 1
         print(f"  Found {one_count} valid 1-pipe patterns")
 
-        # 2-pipe patterns
-        print("\n[2/3] Generating 2-pipe patterns...")
+        # 2-pipe patterns (if max_welds >= 2)
         two_count = 0
-        total_pairs = n * (n + 1) // 2
-        checked = 0
+        if max_welds >= 2:
+            print(f"\n[2/{max_welds}] Generating 2-pipe patterns...")
+            total_pairs = n * (n + 1) // 2
+            checked = 0
 
-        for i in range(n):
-            for j in range(i, n):
-                total_len = lengths[i] + lengths[j]
-                if min_len <= total_len <= max_len:
-                    waste = total_len - self.target_length
-                    if i == j:
-                        if self.inventory[lengths[i]] >= 2:
-                            patterns.append(((i, j), total_len, waste, {i: 2}))
-                            two_count += 1
-                    else:
-                        patterns.append(((i, j), total_len, waste, {i: 1, j: 1}))
-                        two_count += 1
-
-                checked += 1
-                if checked % 5000 == 0:
-                    progress_bar(checked, total_pairs, '2-pipe')
-
-        progress_bar(total_pairs, total_pairs, '2-pipe')
-        print(f"\n  Found {two_count:,} valid 2-pipe patterns")
-
-        self.memory.check("after_2pipe")
-
-        # 3-pipe patterns
-        print("\n[3/3] Generating 3-pipe patterns...")
-        three_count = 0
-        start = time.time()
-
-        for i in range(n):
-            len_i = lengths[i]
-            if 3 * len_i < min_len:
-                break
-
-            for j in range(i, n):
-                len_j = lengths[j]
-                if len_i + 2 * len_j < min_len:
-                    continue
-
-                for k in range(j, n):
-                    len_k = lengths[k]
-                    total_len = len_i + len_j + len_k
-
-                    if total_len < min_len:
-                        break
-
-                    if total_len <= max_len:
+            for i in range(n):
+                for j in range(i, n):
+                    total_len = lengths[i] + lengths[j]
+                    if min_len <= total_len <= max_len:
                         waste = total_len - self.target_length
+                        if i == j:
+                            if self.inventory[lengths[i]] >= 2:
+                                patterns.append(((i, j), total_len, waste, {i: 2}))
+                                two_count += 1
+                        else:
+                            patterns.append(((i, j), total_len, waste, {i: 1, j: 1}))
+                            two_count += 1
 
-                        counts_needed = Counter([i, j, k])
-                        feasible = all(
-                            self.inventory[lengths[idx]] >= cnt
-                            for idx, cnt in counts_needed.items()
-                        )
+                    checked += 1
+                    if checked % 5000 == 0:
+                        progress_bar(checked, total_pairs, '2-pipe')
 
-                        if feasible:
-                            patterns.append(((i, j, k), total_len, waste, dict(counts_needed)))
-                            three_count += 1
+            progress_bar(total_pairs, total_pairs, '2-pipe')
+            print(f"\n  Found {two_count:,} valid 2-pipe patterns")
+            self.memory.check("after_2pipe")
 
-                            # Safety: check limits periodically
-                            if three_count % 50000 == 0:
-                                self.memory.check("3pipe_progress")
-                                if len(patterns) >= max_patterns:
-                                    print(f"\n  WARNING: Pattern limit ({max_patterns:,}) reached - stopping early")
-                                    print(f"  Tip: Reduce max_waste to generate fewer patterns")
-                                    progress_bar(n, n, '3-pipe')
-                                    print(f"\n  Found {three_count:,} valid 3-pipe patterns (capped)")
-                                    self.memory.check("after_3pipe")
-                                    print(f"\n  TOTAL: {len(patterns):,} unique pattern types")
-                                    return patterns
+        # 3-pipe patterns (if max_welds >= 3)
+        three_count = 0
+        if max_welds >= 3:
+            print(f"\n[3/{max_welds}] Generating 3-pipe patterns...")
+            start = time.time()
 
-            # Progress every ~10% of i values
-            if i % max(1, n // 10) == 0:
-                progress_bar(i, n, '3-pipe')
+            for i in range(n):
+                len_i = lengths[i]
+                if 3 * len_i < min_len:
+                    break
 
-        progress_bar(n, n, '3-pipe')
-        print(f"\n  Found {three_count:,} valid 3-pipe patterns in {time.time()-start:.1f}s")
+                for j in range(i, n):
+                    len_j = lengths[j]
+                    if len_i + 2 * len_j < min_len:
+                        continue
 
-        self.memory.check("after_3pipe")
+                    for k in range(j, n):
+                        len_k = lengths[k]
+                        total_len = len_i + len_j + len_k
+
+                        if total_len < min_len:
+                            break
+
+                        if total_len <= max_len:
+                            waste = total_len - self.target_length
+
+                            counts_needed = Counter([i, j, k])
+                            feasible = all(
+                                self.inventory[lengths[idx]] >= cnt
+                                for idx, cnt in counts_needed.items()
+                            )
+
+                            if feasible:
+                                patterns.append(((i, j, k), total_len, waste, dict(counts_needed)))
+                                three_count += 1
+
+                                # Safety: check limits periodically
+                                if three_count % 50000 == 0:
+                                    self.memory.check("3pipe_progress")
+                                    if len(patterns) >= max_patterns:
+                                        print(f"\n  WARNING: Pattern limit ({max_patterns:,}) reached - stopping early")
+                                        print(f"  Tip: Reduce max_waste to generate fewer patterns")
+                                        progress_bar(n, n, '3-pipe')
+                                        print(f"\n  Found {three_count:,} valid 3-pipe patterns (capped)")
+                                        self.memory.check("after_3pipe")
+                                        print(f"\n  TOTAL: {len(patterns):,} unique pattern types")
+                                        return patterns
+
+                # Progress every ~10% of i values
+                if i % max(1, n // 10) == 0:
+                    progress_bar(i, n, '3-pipe')
+
+            progress_bar(n, n, '3-pipe')
+            print(f"\n  Found {three_count:,} valid 3-pipe patterns in {time.time()-start:.1f}s")
+            self.memory.check("after_3pipe")
 
         print(f"\n  TOTAL: {len(patterns):,} unique pattern types")
         return patterns

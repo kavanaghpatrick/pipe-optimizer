@@ -204,18 +204,27 @@ class PipeOptimizerGUI:
         ttk.Label(adv_frame, text="Stop when within X% of optimal (0 = exact)",
                   foreground='gray', font=('Helvetica', 9)).grid(row=2, column=2, sticky='w', padx=5)
 
+        # Max welds per pile
+        ttk.Label(adv_frame, text="Max welds per pile:").grid(row=3, column=0, sticky='w', padx=5)
+        self.welds_var = tk.StringVar(value="3")
+        welds_combo = ttk.Combobox(adv_frame, textvariable=self.welds_var, width=7, state='readonly')
+        welds_combo['values'] = ('1', '2', '3')
+        welds_combo.grid(row=3, column=1, sticky='w', padx=5, pady=2)
+        ttk.Label(adv_frame, text="Max pipes joined per pile (fewer = faster)",
+                  foreground='gray', font=('Helvetica', 9)).grid(row=3, column=2, sticky='w', padx=5)
+
         # Solver threads (auto-detected default)
-        ttk.Label(adv_frame, text="Solver threads:").grid(row=3, column=0, sticky='w', padx=5)
+        ttk.Label(adv_frame, text="Solver threads:").grid(row=4, column=0, sticky='w', padx=5)
         self.threads_var = tk.StringVar(value=str(self.sys_caps.recommended_threads))
         threads_entry = ttk.Entry(adv_frame, textvariable=self.threads_var, width=10)
-        threads_entry.grid(row=3, column=1, sticky='w', padx=5, pady=2)
+        threads_entry.grid(row=4, column=1, sticky='w', padx=5, pady=2)
         ttk.Label(adv_frame, text=f"CPU threads (auto: {self.sys_caps.recommended_threads} = 50% of {self.sys_caps.cpu_cores} cores)",
-                  foreground='gray', font=('Helvetica', 9)).grid(row=3, column=2, sticky='w', padx=5)
+                  foreground='gray', font=('Helvetica', 9)).grid(row=4, column=2, sticky='w', padx=5)
 
         # Tip
         tip = ttk.Label(adv_frame, text="Tip: Lower waste = faster but may find fewer piles | Higher gap = faster but less optimal",
                         foreground='gray', font=('Helvetica', 9))
-        tip.grid(row=4, column=0, columnspan=3, sticky='w', padx=5, pady=(5, 0))
+        tip.grid(row=5, column=0, columnspan=3, sticky='w', padx=5, pady=(5, 0))
 
         # --- Progress ---
         progress_frame = ttk.LabelFrame(main, text="Progress", padding="5")
@@ -361,6 +370,7 @@ class PipeOptimizerGUI:
             time_limit_min = float(self.time_var.get())
             precision = int(self.precision_var.get())
             gap_pct = float(self.gap_var.get())
+            max_welds = int(self.welds_var.get())
             threads = int(self.threads_var.get())
 
             # Convert to solver units
@@ -396,8 +406,8 @@ class PipeOptimizerGUI:
                 return
 
             # Generate patterns
-            self.progress_queue.put(("status", "Generating patterns..."))
-            patterns = solver.generate_patterns()
+            self.progress_queue.put(("status", f"Generating patterns (max {max_welds} welds)..."))
+            patterns = solver.generate_patterns(max_welds=max_welds)
 
             if self.stop_event.is_set():
                 self.progress_queue.put(("cancelled", None))
@@ -443,8 +453,8 @@ Status: {status}
 
 Parameters used:
   Target: {target} ft | Max waste: {waste} ft
-  Precision: {precision} decimals | Gap: {gap_pct}%
-  Time limit: {time_limit_min} min | Threads: {threads}
+  Max welds: {max_welds} | Precision: {precision} decimals
+  Gap: {gap_pct}% | Time: {time_limit_min} min | Threads: {threads}
 
 Weld distribution:
 """
