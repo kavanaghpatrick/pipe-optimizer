@@ -74,6 +74,11 @@ try:
 except ImportError:
     MISSING_PACKAGES.append("openpyxl")
 
+try:
+    import psutil
+except ImportError:
+    MISSING_PACKAGES.append("psutil")
+
 if MISSING_PACKAGES:
     root = tk.Tk()
     root.withdraw()
@@ -444,4 +449,7 @@ def main():
 
 
 if __name__ == "__main__":
+    # Required for Windows PyInstaller to prevent infinite spawn loops
+    import multiprocessing
+    multiprocessing.freeze_support()
     main()

@@ -359,7 +359,7 @@ class SymmetryAwareSafeSolver:
         print(f"\n  Symmetry reduction: {len(pipe_lengths)} pipes → {self.n_types} unique types")
         print(f"  Reduction factor: {len(pipe_lengths)/self.n_types:.1f}x")
 
-    def generate_patterns(self) -> list:
+    def generate_patterns(self, max_patterns: int = 2_000_000) -> list:
         """Generate patterns over unique length TYPES (not individual pipes)"""
         section("PATTERN GENERATION")
 
@@ -447,6 +447,18 @@ class SymmetryAwareSafeSolver:
                         if feasible:
                             patterns.append(((i, j, k), total_len, waste, dict(counts_needed)))
                             three_count += 1
+
+                            # Safety: check limits periodically
+                            if three_count % 50000 == 0:
+                                self.memory.check("3pipe_progress")
+                                if len(patterns) >= max_patterns:
+                                    print(f"\n  WARNING: Pattern limit ({max_patterns:,}) reached - stopping early")
+                                    print(f"  Tip: Reduce max_waste to generate fewer patterns")
+                                    progress_bar(n, n, '3-pipe')
+                                    print(f"\n  Found {three_count:,} valid 3-pipe patterns (capped)")
+                                    self.memory.check("after_3pipe")
+                                    print(f"\n  TOTAL: {len(patterns):,} unique pattern types")
+                                    return patterns
 
             # Progress every ~10% of i values
             if i % max(1, n // 10) == 0:
@@ -636,13 +648,26 @@ def export_to_excel(solver, solution, output_path):
         'Length (ft)': [pipe_lengths[i] for i in unused_indices]
     })
 
-    print(f"  Writing to {output_path}...")
-    with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
-        summary.to_excel(writer, sheet_name='Summary', index=False)
-        df_piles.to_excel(writer, sheet_name='Pile Details', index=False)
-        unused_df.to_excel(writer, sheet_name='Unused Pipes', index=False)
+    # Atomic write: write to temp file first, then replace
+    # This prevents file corruption if the process crashes mid-write
+    temp_path = Path(output_path).with_suffix('.tmp.xlsx')
 
-    print(f"  Exported to: {output_path}")
+    print(f"  Writing to {output_path}...")
+    try:
+        with pd.ExcelWriter(temp_path, engine='openpyxl') as writer:
+            summary.to_excel(writer, sheet_name='Summary', index=False)
+            df_piles.to_excel(writer, sheet_name='Pile Details', index=False)
+            unused_df.to_excel(writer, sheet_name='Unused Pipes', index=False)
+
+        # Atomic replace (works on both Mac/Windows)
+        import shutil
+        shutil.move(str(temp_path), str(output_path))
+        print(f"  Exported to: {output_path}")
+    except Exception as e:
+        # Clean up temp file on failure
+        if temp_path.exists():
+            temp_path.unlink()
+        raise e
 
 
 def main():
