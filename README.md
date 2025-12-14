@@ -37,7 +37,9 @@
 
 - **Optimal Solutions** - Uses Integer Linear Programming (ILP) to find mathematically proven optimal combinations
 - **Fast** - Symmetry-aware algorithm reduces 758 pipes to 273 types, solving in minutes not hours
-- **Memory Safe** - Monitors system resources and adapts to your computer's RAM/CPU
+- **Adaptive** - Auto-detects your system's RAM and CPU cores, adjusts resource usage to ~50% of capacity
+- **Configurable** - Advanced parameters for time limits, precision, optimality gap, and thread count
+- **Memory Safe** - Monitors system resources with soft/hard limits to prevent crashes
 - **Cross-Platform** - Native apps for Mac and Windows, no Python required
 - **Simple** - Just select your file, set parameters, and click Run
 
@@ -61,9 +63,17 @@ The app auto-detects columns named: `length`, `len`, `pipe_length`, `size`, `cut
 
 ### 2. Run the Optimizer
 
+**Basic Parameters:**
 1. Click **Browse** to select your file
 2. Set **Target pile length** (default: 100 ft)
 3. Set **Max waste per pile** (default: 5 ft) - lower = faster but may find fewer piles
+
+**Advanced Parameters (optional):**
+- **Time limit** - Max solver time in minutes (default: 30)
+- **Precision** - Decimal places for length rounding (default: 1 = 0.1 ft accuracy)
+- **Optimality gap** - Stop when within X% of optimal (default: 0.5%)
+- **Solver threads** - Auto-detected at 50% of your CPU cores
+
 4. Click **Run Optimizer**
 
 ### 3. Get Results

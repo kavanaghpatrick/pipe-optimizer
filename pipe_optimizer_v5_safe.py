@@ -240,9 +240,10 @@ def detect_system_capabilities() -> SystemCapabilities:
     soft_limit = min(safe_memory * 0.5, total_mem_gb * 0.4)
     hard_limit = min(safe_memory * 0.7, total_mem_gb * 0.6)
 
-    # For CBC solver, using too many threads can hurt performance
-    # Physical cores / 2 is often optimal, minimum 2, maximum 8
-    recommended_threads = max(2, min(8, cpu_count // 2))
+    # Use ~50% of cores for solver (proportional to system capacity)
+    # Leaves plenty of headroom for OS and other applications
+    # Minimum 2 threads, no arbitrary max cap
+    recommended_threads = max(2, int(cpu_count * 0.5))
 
     return SystemCapabilities(
         total_memory_gb=round(total_mem_gb, 1),

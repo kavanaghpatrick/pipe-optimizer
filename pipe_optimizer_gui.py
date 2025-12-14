@@ -115,7 +115,7 @@ class PipeOptimizerGUI:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("Pipe Pile Optimizer")
-        self.root.geometry("600x520")
+        self.root.geometry("720x750")
         self.root.resizable(True, True)
 
         # Detect system capabilities for adaptive settings
@@ -156,8 +156,8 @@ class PipeOptimizerGUI:
 
         ttk.Button(file_frame, text="Browse...", command=self.browse_file).pack(side='right')
 
-        # --- Parameters ---
-        param_frame = ttk.LabelFrame(main, text="Parameters", padding="5")
+        # --- Basic Parameters ---
+        param_frame = ttk.LabelFrame(main, text="Basic Parameters", padding="5")
         param_frame.pack(fill='x', pady=5)
 
         # Target length
@@ -165,17 +165,57 @@ class PipeOptimizerGUI:
         self.target_var = tk.StringVar(value="100.0")
         target_entry = ttk.Entry(param_frame, textvariable=self.target_var, width=10)
         target_entry.grid(row=0, column=1, sticky='w', padx=5, pady=2)
+        ttk.Label(param_frame, text="The desired length for each completed pile",
+                  foreground='gray', font=('Helvetica', 9)).grid(row=0, column=2, sticky='w', padx=5)
 
         # Max waste
         ttk.Label(param_frame, text="Max waste per pile (ft):").grid(row=1, column=0, sticky='w', padx=5)
         self.waste_var = tk.StringVar(value="5.0")
         waste_entry = ttk.Entry(param_frame, textvariable=self.waste_var, width=10)
         waste_entry.grid(row=1, column=1, sticky='w', padx=5, pady=2)
+        ttk.Label(param_frame, text="Maximum excess length allowed per pile",
+                  foreground='gray', font=('Helvetica', 9)).grid(row=1, column=2, sticky='w', padx=5)
+
+        # --- Advanced Parameters ---
+        adv_frame = ttk.LabelFrame(main, text="Advanced Parameters", padding="5")
+        adv_frame.pack(fill='x', pady=5)
+
+        # Time limit
+        ttk.Label(adv_frame, text="Time limit (minutes):").grid(row=0, column=0, sticky='w', padx=5)
+        self.time_var = tk.StringVar(value="30")
+        time_entry = ttk.Entry(adv_frame, textvariable=self.time_var, width=10)
+        time_entry.grid(row=0, column=1, sticky='w', padx=5, pady=2)
+        ttk.Label(adv_frame, text="Max solver time (will use best solution found)",
+                  foreground='gray', font=('Helvetica', 9)).grid(row=0, column=2, sticky='w', padx=5)
+
+        # Precision
+        ttk.Label(adv_frame, text="Precision (decimals):").grid(row=1, column=0, sticky='w', padx=5)
+        self.precision_var = tk.StringVar(value="1")
+        precision_entry = ttk.Entry(adv_frame, textvariable=self.precision_var, width=10)
+        precision_entry.grid(row=1, column=1, sticky='w', padx=5, pady=2)
+        ttk.Label(adv_frame, text="Decimal places for rounding (1 = 0.1ft accuracy)",
+                  foreground='gray', font=('Helvetica', 9)).grid(row=1, column=2, sticky='w', padx=5)
+
+        # Optimality gap
+        ttk.Label(adv_frame, text="Optimality gap (%):").grid(row=2, column=0, sticky='w', padx=5)
+        self.gap_var = tk.StringVar(value="0.5")
+        gap_entry = ttk.Entry(adv_frame, textvariable=self.gap_var, width=10)
+        gap_entry.grid(row=2, column=1, sticky='w', padx=5, pady=2)
+        ttk.Label(adv_frame, text="Stop when within X% of optimal (0 = exact)",
+                  foreground='gray', font=('Helvetica', 9)).grid(row=2, column=2, sticky='w', padx=5)
+
+        # Solver threads (auto-detected default)
+        ttk.Label(adv_frame, text="Solver threads:").grid(row=3, column=0, sticky='w', padx=5)
+        self.threads_var = tk.StringVar(value=str(self.sys_caps.recommended_threads))
+        threads_entry = ttk.Entry(adv_frame, textvariable=self.threads_var, width=10)
+        threads_entry.grid(row=3, column=1, sticky='w', padx=5, pady=2)
+        ttk.Label(adv_frame, text=f"CPU threads (auto: {self.sys_caps.recommended_threads} = 50% of {self.sys_caps.cpu_cores} cores)",
+                  foreground='gray', font=('Helvetica', 9)).grid(row=3, column=2, sticky='w', padx=5)
 
         # Tip
-        tip = ttk.Label(param_frame, text="Tip: Lower waste = faster solve, but may find fewer piles",
+        tip = ttk.Label(adv_frame, text="Tip: Lower waste = faster but may find fewer piles | Higher gap = faster but less optimal",
                         foreground='gray', font=('Helvetica', 9))
-        tip.grid(row=2, column=0, columnspan=2, sticky='w', padx=5, pady=(5, 0))
+        tip.grid(row=4, column=0, columnspan=3, sticky='w', padx=5, pady=(5, 0))
 
         # --- Progress ---
         progress_frame = ttk.LabelFrame(main, text="Progress", padding="5")
@@ -248,6 +288,34 @@ class PipeOptimizerGUI:
         except ValueError:
             return False, "Max waste must be a number."
 
+        try:
+            time_limit = float(self.time_var.get())
+            if time_limit <= 0:
+                return False, "Time limit must be positive."
+        except ValueError:
+            return False, "Time limit must be a number."
+
+        try:
+            precision = int(self.precision_var.get())
+            if precision < 0 or precision > 6:
+                return False, "Precision must be 0-6 decimal places."
+        except ValueError:
+            return False, "Precision must be an integer."
+
+        try:
+            gap = float(self.gap_var.get())
+            if gap < 0 or gap > 100:
+                return False, "Optimality gap must be 0-100%."
+        except ValueError:
+            return False, "Optimality gap must be a number."
+
+        try:
+            threads = int(self.threads_var.get())
+            if threads < 1:
+                return False, "Threads must be at least 1."
+        except ValueError:
+            return False, "Threads must be an integer."
+
         return True, ""
 
     def run_optimizer(self):
@@ -287,8 +355,17 @@ class PipeOptimizerGUI:
     def _optimizer_worker(self):
         """Worker thread that runs the optimizer."""
         try:
+            # Get all parameters
             target = float(self.target_var.get())
             waste = float(self.waste_var.get())
+            time_limit_min = float(self.time_var.get())
+            precision = int(self.precision_var.get())
+            gap_pct = float(self.gap_var.get())
+            threads = int(self.threads_var.get())
+
+            # Convert to solver units
+            time_limit_sec = int(time_limit_min * 60)
+            gap = gap_pct / 100.0  # Convert percentage to decimal
 
             # Load data
             self.progress_queue.put(("status", "Loading data..."))
@@ -310,6 +387,7 @@ class PipeOptimizerGUI:
                 pipe_data.lengths,
                 target_length=target,
                 max_waste=waste,
+                precision=precision,
                 memory_monitor=memory
             )
 
@@ -325,13 +403,14 @@ class PipeOptimizerGUI:
                 self.progress_queue.put(("cancelled", None))
                 return
 
-            self.progress_queue.put(("status", f"Found {len(patterns):,} patterns. Solving ({caps.recommended_threads} threads)..."))
+            self.progress_queue.put(("status", f"Found {len(patterns):,} patterns. Solving ({threads} threads)..."))
 
-            # Solve with adaptive thread count
+            # Solve with user-specified parameters
             solution, status, solve_time = solver.solve_ilp(
                 patterns,
-                time_limit=1800,
-                threads=caps.recommended_threads
+                time_limit=time_limit_sec,
+                gap=gap,
+                threads=threads
             )
 
             if self.stop_event.is_set():
@@ -361,6 +440,11 @@ Piles created: {total_piles} / {theoretical_max} ({efficiency:.1f}%)
 Total waste: {total_waste:.1f} ft ({total_waste/total_piles:.2f} avg)
 Solve time: {solve_time:.1f} seconds
 Status: {status}
+
+Parameters used:
+  Target: {target} ft | Max waste: {waste} ft
+  Precision: {precision} decimals | Gap: {gap_pct}%
+  Time limit: {time_limit_min} min | Threads: {threads}
 
 Weld distribution:
 """
