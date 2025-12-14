@@ -11,7 +11,15 @@
 
 ## Download
 
-### Latest Release
+### Mac (Recommended: Homebrew)
+
+The easiest way to install on Mac - no Gatekeeper warnings:
+
+```bash
+brew install kavanaghpatrick/pipe-optimizer/pipe-optimizer
+```
+
+### Manual Download
 
 | Platform | Download | Size |
 |----------|----------|------|
@@ -20,13 +28,20 @@
 
 ### Installation
 
-**Mac:**
+**Mac (via Homebrew):**
+```bash
+brew install kavanaghpatrick/pipe-optimizer/pipe-optimizer
+```
+That's it! Open from Applications.
+
+**Mac (manual download):**
 1. Download and unzip `Pipe_Optimizer_Mac.zip`
 2. Drag `Pipe Optimizer.app` to your Applications folder
-3. **First launch** (required for unsigned apps):
-   - Right-click the app → Select "Open" → Click "Open" in dialog
-   - OR run in Terminal: `xattr -cr "/Applications/Pipe Optimizer.app"`
-4. Double-click to run thereafter
+3. **First launch** - run in Terminal to bypass Gatekeeper:
+   ```bash
+   xattr -cr "/Applications/Pipe Optimizer.app"
+   ```
+4. Double-click to run
 
 **Windows:**
 1. Download and unzip `Pipe_Optimizer_Windows.zip`
