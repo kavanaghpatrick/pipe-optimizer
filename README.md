@@ -23,7 +23,9 @@
 **Mac:**
 1. Download and unzip `Pipe_Optimizer_Mac.zip`
 2. Drag `Pipe Optimizer.app` to your Applications folder
-3. First launch: Right-click → Open (required for unsigned apps)
+3. **First launch** (required for unsigned apps):
+   - Right-click the app → Select "Open" → Click "Open" in dialog
+   - OR run in Terminal: `xattr -cr "/Applications/Pipe Optimizer.app"`
 4. Double-click to run thereafter
 
 **Windows:**
@@ -155,10 +157,12 @@ pipe-optimizer/
 
 | Issue | Solution |
 |-------|----------|
-| Mac: "App is damaged" | Right-click → Open, or: `xattr -cr "Pipe Optimizer.app"` |
+| Mac: "Cannot verify" / "malware" warning | Right-click → Open → Open, or: `xattr -cr "Pipe Optimizer.app"` |
+| Mac: "App is damaged" | Run: `xattr -cr "Pipe Optimizer.app"` in Terminal |
 | Windows: SmartScreen blocks | Click "More info" → "Run anyway" |
 | Solver not found | Rebuild with `./build_app.sh` to rebundle CBC |
 | Out of memory | Reduce "Max waste" parameter (try 3-5 ft) |
+| Cancel not working | Fixed in v1.2.0 - update to latest release |
 
 ---
 
