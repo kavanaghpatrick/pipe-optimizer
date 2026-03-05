@@ -38,3 +38,5 @@ archive/
 
 # Keep sample data
 !data/*.csv
+specs/.current-spec
+**/.progress.md

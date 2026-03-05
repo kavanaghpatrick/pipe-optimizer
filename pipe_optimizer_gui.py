@@ -229,10 +229,17 @@ class PipeOptimizerGUI:
         ttk.Label(adv_frame, text=f"CPU threads (auto: {self.sys_caps.recommended_threads} = 50% of {self.sys_caps.cpu_cores} cores)",
                   foreground='gray', font=('Helvetica', 9)).grid(row=4, column=2, sticky='w', padx=5)
 
+        # Solver mode
+        ttk.Label(adv_frame, text="Solver mode:").grid(row=5, column=0, sticky='w', padx=5)
+        self.solver_var = tk.StringVar(value='ILP (Optimal)')
+        solver_combo = ttk.Combobox(adv_frame, textvariable=self.solver_var, width=25, state='readonly')
+        solver_combo['values'] = ('ILP (Optimal)', 'GPU Greedy (Fast)', 'GPU + LP Rounding (Balanced)')
+        solver_combo.grid(row=5, column=1, columnspan=2, sticky='w', padx=5, pady=2)
+
         # Tip
         tip = ttk.Label(adv_frame, text="Tip: Lower waste = faster but may find fewer piles | Higher gap = faster but less optimal",
                         foreground='gray', font=('Helvetica', 9))
-        tip.grid(row=5, column=0, columnspan=3, sticky='w', padx=5, pady=(5, 0))
+        tip.grid(row=6, column=0, columnspan=3, sticky='w', padx=5, pady=(5, 0))
 
         # --- Progress ---
         progress_frame = ttk.LabelFrame(main, text="Progress", padding="5")
@@ -377,6 +384,7 @@ class PipeOptimizerGUI:
             'threads': int(self.threads_var.get()),
             'input_file': self.selected_file,
             'output_file': self.output_file,
+            'solver_mode': self.solver_var.get(),
         }
 
         # Start worker thread with params
@@ -415,41 +423,83 @@ class PipeOptimizerGUI:
 
             self.progress_queue.put(("status", f"Loaded {pipe_data.valid_count} pipes"))
 
-            # Initialize solver with adaptive memory limits
-            caps = self.sys_caps
-            memory = MemoryMonitor(
-                soft_limit_gb=caps.recommended_soft_limit_gb,
-                hard_limit_gb=caps.recommended_hard_limit_gb
-            )
-            solver = SymmetryAwareSafeSolver(
-                pipe_data.lengths,
-                target_length=target,
-                max_waste=waste,
-                precision=precision,
-                memory_monitor=memory
-            )
+            solver_mode = params.get('solver_mode', 'ILP (Optimal)')
+            solution = None
+            status = None
+            solve_time = 0
+            solver = None
 
-            if self.stop_event.is_set():
-                self.progress_queue.put(("cancelled", None))
-                return
+            # --- GPU solver path ---
+            if 'GPU' in solver_mode:
+                try:
+                    from gpu_solver import GPUPipeOptimizer
+                    gpu_solver = GPUPipeOptimizer(
+                        pipe_data.lengths, target, waste, precision
+                    )
+                    solver = gpu_solver
 
-            # Generate patterns (pass stop_event for cancellation support)
-            self.progress_queue.put(("status", f"Generating patterns (max {max_welds} welds)..."))
-            patterns = solver.generate_patterns(max_welds=max_welds, stop_event=self.stop_event)
+                    if self.stop_event.is_set():
+                        self.progress_queue.put(("cancelled", None))
+                        return
 
-            if self.stop_event.is_set():
-                self.progress_queue.put(("cancelled", None))
-                return
+                    self.progress_queue.put(("status", f"Generating patterns (GPU, max_welds={max_welds})..."))
+                    patterns = gpu_solver.generate_patterns(
+                        max_welds=max_welds, stop_event=self.stop_event
+                    )
 
-            self.progress_queue.put(("status", f"Found {len(patterns):,} patterns. Solving ({threads} threads)..."))
+                    if self.stop_event.is_set():
+                        self.progress_queue.put(("cancelled", None))
+                        return
 
-            # Solve with user-specified parameters
-            solution, status, solve_time = solver.solve_ilp(
-                patterns,
-                time_limit=time_limit_sec,
-                gap=gap,
-                threads=threads
-            )
+                    self.progress_queue.put(("status", f"Generated {len(patterns):,} patterns. Solving..."))
+
+                    if 'Greedy' in solver_mode:
+                        solution, status, solve_time = gpu_solver.solve_greedy(patterns)
+                    else:
+                        solution, status, solve_time = gpu_solver.solve_lp_guided(patterns)
+
+                except Exception as e:
+                    self.progress_queue.put(("status", f"GPU failed: {e}. Falling back to ILP..."))
+                    solver_mode = 'ILP (Optimal)'
+                    solution = None
+
+            # --- ILP solver path (existing, unchanged) ---
+            if 'ILP' in solver_mode:
+                # Initialize solver with adaptive memory limits
+                caps = self.sys_caps
+                memory = MemoryMonitor(
+                    soft_limit_gb=caps.recommended_soft_limit_gb,
+                    hard_limit_gb=caps.recommended_hard_limit_gb
+                )
+                solver = SymmetryAwareSafeSolver(
+                    pipe_data.lengths,
+                    target_length=target,
+                    max_waste=waste,
+                    precision=precision,
+                    memory_monitor=memory
+                )
+
+                if self.stop_event.is_set():
+                    self.progress_queue.put(("cancelled", None))
+                    return
+
+                # Generate patterns (pass stop_event for cancellation support)
+                self.progress_queue.put(("status", f"Generating patterns (max {max_welds} welds)..."))
+                patterns = solver.generate_patterns(max_welds=max_welds, stop_event=self.stop_event)
+
+                if self.stop_event.is_set():
+                    self.progress_queue.put(("cancelled", None))
+                    return
+
+                self.progress_queue.put(("status", f"Found {len(patterns):,} patterns. Solving ({threads} threads)..."))
+
+                # Solve with user-specified parameters
+                solution, status, solve_time = solver.solve_ilp(
+                    patterns,
+                    time_limit=time_limit_sec,
+                    gap=gap,
+                    threads=threads
+                )
 
             if self.stop_event.is_set():
                 self.progress_queue.put(("cancelled", None))
@@ -474,6 +524,7 @@ class PipeOptimizerGUI:
 
             results = f"""OPTIMIZATION COMPLETE
 
+Solver: {solver_mode}
 Piles created: {total_piles} / {theoretical_max} ({efficiency:.1f}%)
 Total waste: {total_waste:.1f} ft ({total_waste/total_piles:.2f} avg)
 Solve time: {solve_time:.1f} seconds
