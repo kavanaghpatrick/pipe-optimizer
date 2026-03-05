@@ -178,7 +178,7 @@ class PipeOptimizerGUI:
 
         # Max waste
         ttk.Label(param_frame, text="Max waste per pile (ft):").grid(row=1, column=0, sticky='w', padx=5)
-        self.waste_var = tk.StringVar(value="5.0")
+        self.waste_var = tk.StringVar(value="0.5")
         waste_entry = ttk.Entry(param_frame, textvariable=self.waste_var, width=10)
         waste_entry.grid(row=1, column=1, sticky='w', padx=5, pady=2)
         ttk.Label(param_frame, text="Maximum excess length allowed per pile",
@@ -231,7 +231,7 @@ class PipeOptimizerGUI:
 
         # Solver mode
         ttk.Label(adv_frame, text="Solver mode:").grid(row=5, column=0, sticky='w', padx=5)
-        self.solver_var = tk.StringVar(value='ILP (Optimal)')
+        self.solver_var = tk.StringVar(value='GPU Greedy (Fast)')
         solver_combo = ttk.Combobox(adv_frame, textvariable=self.solver_var, width=25, state='readonly')
         solver_combo['values'] = ('ILP (Optimal)', 'GPU Greedy (Fast)', 'GPU + LP Rounding (Balanced)')
         solver_combo.grid(row=5, column=1, columnspan=2, sticky='w', padx=5, pady=2)
